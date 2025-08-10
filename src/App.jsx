@@ -25,7 +25,7 @@ const currentAge = (profile, time) => {
   if (!profile?.age) return "—";
   const startYear = Number(profile.year) || time.year;
   const baseAge = Number(profile.age) || 0;
-  const delta = Math.max(0, (time.year - startYear));
+  const delta = Math.max(0, time.year - startYear);
   return baseAge + delta;
 };
 
@@ -60,8 +60,8 @@ const initialState = {
   time: { week: 1, year: 2025 },
   stats: { popularity: 1, inspiration: 100, reputation: 50, energy: ENERGY_MAX, money: 1000 },
   drafts: [],
-  releases: [],   // singles + project entries (project shows as a single line item)
-  projects: [],   // detailed EP/ALBUM objects with track lists
+  releases: [], // singles + project entries (project shows as a single line item)
+  projects: [], // detailed EP/ALBUM objects with track lists
   alerts: []
 };
 
@@ -84,10 +84,7 @@ function reducer(state, action) {
       if (state.stats.energy < WRITE_COST_ENERGY || state.stats.inspiration < WRITE_COST_INSPIRATION) {
         return {
           ...state,
-          alerts: [
-            { id: uid(), kind: "info", msg: "Too tired to write. Rest a bit first.", t: Date.now() },
-            ...state.alerts
-          ]
+          alerts: [{ id: uid(), kind: "info", msg: "Too tired to write. Rest a bit first.", t: Date.now() }, ...state.alerts]
         };
       }
 
@@ -134,7 +131,7 @@ function reducer(state, action) {
       const rules = PROJECT_RULES[type];
       if (!rules) return state;
 
-      const chosen = state.drafts.filter(d => songIds.includes(d.id));
+      const chosen = state.drafts.filter((d) => songIds.includes(d.id));
       if (chosen.length < rules.min || chosen.length > rules.max) {
         return {
           ...state,
@@ -156,8 +153,8 @@ function reducer(state, action) {
       const project = {
         id: uid(),
         title: title.trim(),
-        type,  // "EP" | "ALBUM"
-        songs: chosen.map(d => ({ id: d.id, title: d.title, quality: d.quality })),
+        type, // "EP" | "ALBUM"
+        songs: chosen.map((d) => ({ id: d.id, title: d.title, quality: d.quality })),
         weekReleased: state.time.week,
         yearReleased: state.time.year,
         streamsHistory: []
@@ -179,7 +176,7 @@ function reducer(state, action) {
 
       return {
         ...state,
-        drafts: state.drafts.filter(d => !songIds.includes(d.id)),  // remove used drafts
+        drafts: state.drafts.filter((d) => !songIds.includes(d.id)), // remove used drafts
         projects: [project, ...state.projects],
         releases: [release, ...state.releases],
         alerts: [{ id: uid(), kind: "success", msg: `Released ${type}: "${project.title}"`, t: Date.now() }, ...state.alerts]
@@ -290,13 +287,22 @@ const Screen = ({ children }) => <div className="px-4 pb-[96px] pt-6 max-w-3xl m
 
 const TopGrad = ({ title, subtitle, right }) => (
   <div className="mb-4">
-    <div className={`w-full h-24 rounded-2xl bg-gradient-to-br ${brand.blueGrad} ${brand.glow} p-5 flex items-end justify-between`}>
+    <div
+      className={`w-full h-24 rounded-2xl bg-gradient-to-br ${brand.blueGrad} ${brand.glow} p-5 flex items-end justify-between`}
+    >
       <div>
         <div className="text-xl font-extrabold tracking-tight">{title}</div>
         {subtitle && <div className="text-white/80 -mt-0.5">{subtitle}</div>}
       </div>
       {right}
     </div>
+  </div>
+);
+
+// Floating bottom action (keeps primary CTA reachable on mobile)
+const BottomAction = ({ children }) => (
+  <div className="fixed bottom-20 left-0 right-0 flex justify-center pointer-events-none">
+    <div className="pointer-events-auto">{children}</div>
   </div>
 );
 
@@ -310,14 +316,20 @@ function Startup({ hasSave, onContinue, onNewGame }) {
           <>
             <div className={`${brand.dim}`}>We found a previous save on this device.</div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={onContinue} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Continue</button>
-              <button onClick={onNewGame} className="rounded-xl px-4 py-3 bg-white/10">New Game</button>
+              <button onClick={onContinue} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>
+                Continue
+              </button>
+              <button onClick={onNewGame} className="rounded-xl px-4 py-3 bg-white/10">
+                New Game
+              </button>
             </div>
           </>
         ) : (
           <>
             <div className={`${brand.dim}`}>No save found. Create your artist to begin.</div>
-            <button onClick={onNewGame} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Create New Artist</button>
+            <button onClick={onNewGame} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>
+              Create New Artist
+            </button>
           </>
         )}
       </Panel>
@@ -331,45 +343,54 @@ function Home({ state, dispatch }) {
     <Screen>
       <TopGrad title="Home" subtitle="Dashboard" />
 
-{/* small status row: year/week + money */}
-<div className="flex items-center justify-between mb-4">
-  <div className="flex items-center gap-3">
-    <span className="inline-flex items-center rounded-xl px-3 py-1 bg-white/5">{state.time.year}</span>
-    <span className={`${brand.dim}`}>Week {state.time.week}</span>
-  </div>
-  <div className="font-semibold">{fmtMoney(state.stats.money)}</div>
-</div>
-
-<div className="grid grid-cols-1 gap-4">
-  <Panel className="flex items-center gap-4">
-    <div className="size-14 rounded-full bg-white/5 grid place-items-center">🎤</div>
-    <div className="flex-1">
-      <div className={`${brand.dim} text-sm`}>Artist</div>
-      <div className="text-lg font-semibold">
-        {state.profile?.name ?? "— (start a new game)"}
-        {state.profile && (
-          <span className={`ml-2 text-sm ${brand.dim}`}>• Age {currentAge(state.profile, state.time)}</span>
-        )}
+      {/* small status row: year/week + money */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center rounded-xl px-3 py-1 bg-white/5">{state.time.year}</span>
+          <span className={`${brand.dim}`}>Week {state.time.week}</span>
+        </div>
+        <div className="font-semibold">{fmtMoney(state.stats.money)}</div>
       </div>
-    </div>
-  </Panel>
 
-  {/* compact stats strip (money moved to header) */}
-  <Panel className="bg-gradient-to-br from-[#151526] to-[#121218]">
-    <div className="text-neutral-300 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-      <span>Popularity {state.stats.popularity}%</span>
-      <span>Reputation {state.stats.reputation}%</span>
-      <span>Energy {state.stats.energy}/100</span>
-      <span>Inspiration {state.stats.inspiration}/100</span>
-    </div>
-  </Panel>
-</div>
+      <div className="grid grid-cols-1 gap-4">
+        <Panel className="flex items-center gap-4">
+          <div className="size-14 rounded-full bg-white/5 grid place-items-center">🎤</div>
+          <div className="flex-1">
+            <div className={`${brand.dim} text-sm`}>Artist</div>
+            <div className="text-lg font-semibold">
+              {state.profile?.name ?? "— (start a new game)"}
+              {state.profile && (
+                <span className={`ml-2 text-sm ${brand.dim}`}>• Age {currentAge(state.profile, state.time)}</span>
+              )}
+            </div>
+          </div>
+        </Panel>
+
+        {/* compact stats strip (money moved to header) */}
+        <Panel className="bg-gradient-to-br from-[#151526] to-[#121218]">
+          <div className="text-neutral-300 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            <span>Popularity {state.stats.popularity}%</span>
+            <span>Reputation {state.stats.reputation}%</span>
+            <span>Energy {state.stats.energy}/100</span>
+            <span>Inspiration {state.stats.inspiration}/100</span>
+          </div>
+        </Panel>
 
         <Panel>
           <div className="font-semibold mb-2">Upcoming</div>
           <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
         </Panel>
       </div>
+
+      {/* Floating primary action */}
+      <BottomAction>
+        <button
+          onClick={() => dispatch({ type: "ADVANCE_WEEK" })}
+          className="rounded-full px-5 py-3 font-semibold bg-gradient-to-br from-[#3B82F6] to-[#1D4ED8] shadow-lg shadow-blue-500/20"
+        >
+          » Progress Week
+        </button>
+      </BottomAction>
     </Screen>
   );
 }
@@ -390,33 +411,62 @@ function Create({ dispatch }) {
         <div className="p-6 grid gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Artist Name">
-              <input className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none" value={form.name} onChange={(e) => update("name", e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.name}
+                onChange={(e) => update("name", e.target.value)}
+              />
             </Field>
             <Field label="Age">
-              <input className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none" value={form.age} onChange={(e) => update("age", e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.age}
+                onChange={(e) => update("age", e.target.value)}
+              />
             </Field>
             <Field label="Starting Year">
-              <select className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none" value={form.year} onChange={(e) => update("year", e.target.value)}>
-                {["2023","2024","2025","2026"].map((y) => <option key={y}>{y}</option>)}
+              <select
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.year}
+                onChange={(e) => update("year", e.target.value)}
+              >
+                {["2023", "2024", "2025", "2026"].map((y) => (
+                  <option key={y}>{y}</option>
+                ))}
               </select>
             </Field>
             <Field label="Gender">
-              <select className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none" value={form.gender} onChange={(e) => update("gender", e.target.value)}>
+              <select
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.gender}
+                onChange={(e) => update("gender", e.target.value)}
+              >
                 <option value="">Select…</option>
-                <option>Male</option><option>Female</option><option>Other</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
               </select>
             </Field>
           </div>
           <Field label="Difficulty">
-            <select className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none" value={form.difficulty} onChange={(e) => update("difficulty", e.target.value)}>
-              <option>Easy</option><option>Normal</option><option>Hard</option>
+            <select
+              className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+              value={form.difficulty}
+              onChange={(e) => update("difficulty", e.target.value)}
+            >
+              <option>Easy</option>
+              <option>Normal</option>
+              <option>Hard</option>
             </select>
           </Field>
 
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => {
-                if (!form.name.trim()) { alert("Please enter a name."); return; }
+                if (!form.name.trim()) {
+                  alert("Please enter a name.");
+                  return;
+                }
                 dispatch({ type: "CREATE_PROFILE", payload: form });
               }}
               className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}
@@ -449,7 +499,7 @@ function Studio({ state, dispatch }) {
   const [projType, setProjType] = useState("EP");
 
   const toggleSelect = (id) =>
-    setSelected(prev => {
+    setSelected((prev) => {
       const n = new Set(prev);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -506,12 +556,7 @@ function Studio({ state, dispatch }) {
               return (
                 <div key={d.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
                   <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSelect(d.id)}
-                      className="accent-white/80"
-                    />
+                    <input type="checkbox" checked={checked} onChange={() => toggleSelect(d.id)} className="accent-white/80" />
                     <div>
                       <div className="font-semibold">{d.title}</div>
                       <div className={`${brand.dim} text-sm`}>Quality {d.quality}</div>
@@ -539,18 +584,11 @@ function Studio({ state, dispatch }) {
               onChange={(e) => setProjTitle(e.target.value)}
               className="rounded-xl bg-white/5 px-3 py-2 outline-none"
             />
-            <select
-              value={projType}
-              onChange={(e) => setProjType(e.target.value)}
-              className="rounded-xl bg-white/5 px-3 py-2 outline-none"
-            >
+            <select value={projType} onChange={(e) => setProjType(e.target.value)} className="rounded-xl bg-white/5 px-3 py-2 outline-none">
               <option>EP</option>
               <option>ALBUM</option>
             </select>
-            <button
-              onClick={createProject}
-              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}
-            >
+            <button onClick={createProject} className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>
               Create & Release {projType}
             </button>
           </div>
@@ -607,14 +645,15 @@ function Media({ state }) {
               <div className={`${brand.dim}`}>Schedule posts, collabs, and press to boost discovery.</div>
             </div>
           )}
-          {tab === "Charts" && (
-            hasRelease ? <ChartsInner state={state} /> : (
+          {tab === "Charts" &&
+            (hasRelease ? (
+              <ChartsInner state={state} />
+            ) : (
               <div className="grid gap-2">
                 <div className="text-lg font-semibold">Charts Locked</div>
                 <div className={`${brand.dim}`}>Release at least one single or project to unlock Charts.</div>
               </div>
-            )
-          )}
+            ))}
         </div>
       </Panel>
     </Screen>
@@ -778,7 +817,9 @@ export default function App() {
                   <button
                     key={n.key}
                     onClick={() => setTab(n.key)}
-                    className={`rounded-xl px-3 py-2 text-xs sm:text-sm flex flex-col items-center justify-center ${active ? "bg-white/10" : "bg-white/[0.03]"}`}
+                    className={`rounded-xl px-3 py-2 text-xs sm:text-sm flex flex-col items-center justify-center ${
+                      active ? "bg-white/10" : "bg-white/[0.03]"
+                    }`}
                     aria-label={n.label}
                   >
                     <span className="text-lg leading-none">{n.icon}</span>
