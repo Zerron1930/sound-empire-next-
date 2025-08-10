@@ -45,6 +45,7 @@ const BASE_DISCOVERY = 500;
 const POP_WEIGHT = 60;
 const REP_WEIGHT = 40;
 const ENERGY_MAX = 100;
+const INSPIRATION_MAX = 100;
 const WRITE_COST_ENERGY = 10;
 const WRITE_COST_INSPIRATION = 15;
 
@@ -59,6 +60,7 @@ const initialState = {
   profile: null, // {firstName, lastName, artistName, age, year, gender, difficulty}
   time: { week: 1, year: 2025 },
   stats: { popularity: 1, inspiration: 100, reputation: 50, energy: ENERGY_MAX, money: 1000 },
+  events: [], // { id, type, title, week, effects: { pop?:number, rep?:number, money?:number, energy?:number, insp?:number } }
   drafts: [],
   releases: [], // singles + project entries (project shows as a single line item)
   projects: [], // detailed EP/ALBUM objects with track lists
@@ -234,10 +236,31 @@ function reducer(state, action) {
       const weekStreams = afterRank.reduce((s, r) => s + (r.streamsHistory.at(-1) ?? 0), 0);
       const pay = weekStreams * PAYOUT_PER_STREAM;
 
-      const newPop = clamp(Math.round(clamp(state.stats.popularity + weekStreams / 200000, 1, 100)), 1, 100);
-      const newRep = clamp(Math.round(clamp(state.stats.reputation + 0.2, 1, 100)), 1, 100);
+      // gather this week's events and their effects
+      const thisWeeksEvents = state.events.filter(e => e.week === state.time.week);
+      const effects = thisWeeksEvents.reduce((acc, e) => {
+        const fx = e.effects ?? {};
+        acc.pop += fx.pop ?? 0;
+        acc.rep += fx.rep ?? 0;
+        acc.money += fx.money ?? 0;
+        acc.energy += fx.energy ?? 0;
+        acc.insp += fx.insp ?? 0;
+        return acc;
+      }, { pop:0, rep:0, money:0, energy:0, insp:0 });
 
-      // tick time
+      // stat drift from streams (existing)
+      const popFromStreams = weekStreams / 200000;
+      const repDrift = 0.2;
+
+      // apply chart drift first
+      let newPop = clamp(Math.round(clamp(state.stats.popularity + popFromStreams, 1, 100)), 1, 100);
+      let newRep = clamp(Math.round(clamp(state.stats.reputation + repDrift, 1, 100)), 1, 100);
+
+      // add event effects
+      newPop = clamp(newPop + effects.pop, 1, 100);
+      newRep = clamp(newRep + effects.rep, 1, 100);
+
+      // tick time (existing)
       let { week, year } = state.time;
       week += 1;
       if (week > 52) {
@@ -245,23 +268,56 @@ function reducer(state, action) {
         year += 1;
       }
 
+      // weekly renewals then apply event modifiers
+      let nextEnergy = clamp(ENERGY_MAX + effects.energy, 0, ENERGY_MAX);
+      let nextInsp   = clamp(INSPIRATION_MAX + effects.insp, 0, INSPIRATION_MAX);
+
+      const nextMoney = state.stats.money + pay + (effects.money ?? 0);
+
       return {
         ...state,
         time: { week, year },
         releases: afterRank,
+        events: state.events.filter(e => e.week !== state.time.week), // consume this week's events
         stats: {
           ...state.stats,
-          energy: clamp(state.stats.energy + 10, 0, ENERGY_MAX),
+          energy: nextEnergy,
+          inspiration: nextInsp,
           popularity: newPop,
           reputation: newRep,
-          money: state.stats.money + pay
+          money: nextMoney
         },
         alerts: [
           { id: uid(), kind: "info", msg: `Week advanced — ${weekStreams.toLocaleString()} streams (+${fmtMoney(pay)})`, t: Date.now() },
+          ...thisWeeksEvents.map(e => ({ id: uid(), kind: "success", msg: `Event applied: ${e.title}`, t: Date.now() })),
           ...state.alerts
         ]
       };
     }
+
+    case "SCHEDULE_EVENT": {
+      // payload: { id?, type, title, week, effects }
+      const e = action.payload;
+      const evt = { id: e.id ?? uid(), ...e };
+      return { ...state, events: [...state.events, evt],
+        alerts: [{ id: uid(), kind: "info", msg: `Scheduled: ${evt.title} (Week ${evt.week})`, t: Date.now() }, ...state.alerts]
+      };
+    }
+
+    case "CANCEL_EVENT": {
+      // payload: eventId
+      const id = action.payload;
+      const found = state.events.find(x => x.id === id);
+      return { ...state, events: state.events.filter(x => x.id !== id),
+        alerts: found ? [{ id: uid(), kind: "info", msg: `Canceled: ${found.title}`, t: Date.now() }, ...state.alerts] : state.alerts
+      };
+    }
+
+    // Example schedule:
+    // dispatch({ type: "SCHEDULE_EVENT", payload: {
+    //   type: "gig", title: "Club Gig - Midtown", week: state.time.week, 
+    //   effects: { money: 1200, pop: 2, rep: 1, energy: -15 }
+    // }});
 
     case "MARK_ALERTS_READ":
       return { ...state, alerts: [] };
