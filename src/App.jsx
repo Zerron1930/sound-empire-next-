@@ -20,6 +20,15 @@ const fmtMoney = (n) =>
 const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 const uid = () => (crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
+// compute current age from starting age + elapsed years
+const currentAge = (profile, time) => {
+  if (!profile?.age) return "—";
+  const startYear = Number(profile.year) || time.year;
+  const baseAge = Number(profile.age) || 0;
+  const delta = Math.max(0, (time.year - startYear));
+  return baseAge + delta;
+};
+
 const brand = {
   blueGrad: "from-[#3B82F6] to-[#1D4ED8]", // blue-500 → blue-700
   bg: "bg-[#0b0b0f]",
@@ -320,43 +329,41 @@ function Startup({ hasSave, onContinue, onNewGame }) {
 function Home({ state, dispatch }) {
   return (
     <Screen>
-      <TopGrad
-        title="Home"
-        subtitle="Dashboard"
-        right={
-          <button
-            onClick={() => dispatch({ type: "ADVANCE_WEEK" })}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white bg-black/20 backdrop-blur ${brand.ring}`}
-          >
-            » Progress Week
-          </button>
-        }
-      />
+      <TopGrad title="Home" subtitle="Dashboard" />
 
-      <div className="flex items-center gap-3 mb-4">
-        <span className="inline-flex items-center rounded-xl px-3 py-1 bg-white/5">{state.time.year}</span>
-        <span className={`${brand.dim}`}>Week {state.time.week}</span>
+{/* small status row: year/week + money */}
+<div className="flex items-center justify-between mb-4">
+  <div className="flex items-center gap-3">
+    <span className="inline-flex items-center rounded-xl px-3 py-1 bg-white/5">{state.time.year}</span>
+    <span className={`${brand.dim}`}>Week {state.time.week}</span>
+  </div>
+  <div className="font-semibold">{fmtMoney(state.stats.money)}</div>
+</div>
+
+<div className="grid grid-cols-1 gap-4">
+  <Panel className="flex items-center gap-4">
+    <div className="size-14 rounded-full bg-white/5 grid place-items-center">🎤</div>
+    <div className="flex-1">
+      <div className={`${brand.dim} text-sm`}>Artist</div>
+      <div className="text-lg font-semibold">
+        {state.profile?.name ?? "— (start a new game)"}
+        {state.profile && (
+          <span className={`ml-2 text-sm ${brand.dim}`}>• Age {currentAge(state.profile, state.time)}</span>
+        )}
       </div>
+    </div>
+  </Panel>
 
-      <div className="grid grid-cols-1 gap-4">
-        <Panel className="flex items-center gap-4">
-          <div className="size-14 rounded-full bg-white/5 grid place-items-center">🎤</div>
-          <div className="flex-1">
-            <div className={`${brand.dim} text-sm`}>Artist</div>
-            <div className="text-lg font-semibold">{state.profile?.name ?? "— (start a new game)"}</div>
-          </div>
-        </Panel>
-
-        <Panel className="bg-gradient-to-br from-[#151526] to-[#121218]">
-          <div className={`${brand.dim} text-sm`}>Money</div>
-          <div className="text-3xl font-extrabold mt-1">{fmtMoney(state.stats.money)}</div>
-          <div className="mt-2 text-neutral-300 flex flex-wrap gap-x-5 gap-y-2 text-sm">
-            <span>Popularity {state.stats.popularity}%</span>
-            <span>Reputation {state.stats.reputation}%</span>
-            <span>Energy {state.stats.energy}/100</span>
-            <span>Inspiration {state.stats.inspiration}/100</span>
-          </div>
-        </Panel>
+  {/* compact stats strip (money moved to header) */}
+  <Panel className="bg-gradient-to-br from-[#151526] to-[#121218]">
+    <div className="text-neutral-300 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+      <span>Popularity {state.stats.popularity}%</span>
+      <span>Reputation {state.stats.reputation}%</span>
+      <span>Energy {state.stats.energy}/100</span>
+      <span>Inspiration {state.stats.inspiration}/100</span>
+    </div>
+  </Panel>
+</div>
 
         <Panel>
           <div className="font-semibold mb-2">Upcoming</div>
