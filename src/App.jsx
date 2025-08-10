@@ -4,9 +4,9 @@ import React, { useEffect, useReducer, useState } from "react";
    Sound Empire — Next
    - Blue gradient theme + debranded Create page
    - Startup screen (Continue / New Game)
-   - Hide Create tab after profile exists
-   - Projects: EPs (3–7) & Albums (8–14) from drafts
-   - Skeleton pages: Platforms, Activities, Media & Promo, Business, Life
+   - Nav: Home • Studio • Media (Charts inside) • Activities • Settings
+   - Charts are locked until you release your first single/project
+   - Studio: EPs (3–7) & Albums (8–14) from drafts
    - "Write Song" costs Energy/Inspiration
    - LocalStorage persistence
    ========================================================== */
@@ -72,7 +72,6 @@ function reducer(state, action) {
     }
 
     case "WRITE_SONG": {
-      // apply small costs
       if (state.stats.energy < WRITE_COST_ENERGY || state.stats.inspiration < WRITE_COST_INSPIRATION) {
         return {
           ...state,
@@ -179,7 +178,6 @@ function reducer(state, action) {
     }
 
     case "ADVANCE_WEEK": {
-      // simulate streams
       const { popularity, reputation } = state.stats;
 
       const updated = state.releases.map((r) => {
@@ -213,7 +211,6 @@ function reducer(state, action) {
       const weekStreams = afterRank.reduce((s, r) => s + (r.streamsHistory.at(-1) ?? 0), 0);
       const pay = weekStreams * PAYOUT_PER_STREAM;
 
-      // stat drift
       const newPop = clamp(Math.round(clamp(state.stats.popularity + weekStreams / 200000, 1, 100)), 1, 100);
       const newRep = clamp(Math.round(clamp(state.stats.reputation + 0.2, 1, 100)), 1, 100);
 
@@ -280,7 +277,7 @@ const Panel = ({ children, className = "" }) => (
   <div className={`rounded-2xl ${brand.card} ${brand.ring} p-4 ${className}`}>{children}</div>
 );
 
-const Screen = ({ children }) => <div className="px-4 pb-28 pt-6">{children}</div>;
+const Screen = ({ children }) => <div className="px-4 pb-[96px] pt-6 max-w-3xl mx-auto">{children}</div>;
 
 const TopGrad = ({ title, subtitle, right }) => (
   <div className="mb-4">
@@ -304,14 +301,14 @@ function Startup({ hasSave, onContinue, onNewGame }) {
           <>
             <div className={`${brand.dim}`}>We found a previous save on this device.</div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={onContinue} className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Continue</button>
-              <button onClick={onNewGame} className="rounded-xl px-4 py-2 bg-white/10">New Game</button>
+              <button onClick={onContinue} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Continue</button>
+              <button onClick={onNewGame} className="rounded-xl px-4 py-3 bg-white/10">New Game</button>
             </div>
           </>
         ) : (
           <>
             <div className={`${brand.dim}`}>No save found. Create your artist to begin.</div>
-            <button onClick={onNewGame} className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Create New Artist</button>
+            <button onClick={onNewGame} className={`rounded-xl px-4 py-3 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Create New Artist</button>
           </>
         )}
       </Panel>
@@ -353,12 +350,17 @@ function Home({ state, dispatch }) {
         <Panel className="bg-gradient-to-br from-[#151526] to-[#121218]">
           <div className={`${brand.dim} text-sm`}>Money</div>
           <div className="text-3xl font-extrabold mt-1">{fmtMoney(state.stats.money)}</div>
-          <div className="mt-2 text-neutral-300 flex gap-5 text-sm">
+          <div className="mt-2 text-neutral-300 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             <span>Popularity {state.stats.popularity}%</span>
             <span>Reputation {state.stats.reputation}%</span>
             <span>Energy {state.stats.energy}/100</span>
             <span>Inspiration {state.stats.inspiration}/100</span>
           </div>
+        </Panel>
+
+        <Panel>
+          <div className="font-semibold mb-2">Upcoming</div>
+          <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
         </Panel>
       </div>
     </Screen>
@@ -430,7 +432,8 @@ function Field({ label, children }) {
   );
 }
 
-function Projects({ state, dispatch }) {
+// --------- STUDIO (formerly Projects)
+function Studio({ state, dispatch }) {
   const [title, setTitle] = useState("");
 
   // project creation state
@@ -450,7 +453,6 @@ function Projects({ state, dispatch }) {
       type: "CREATE_PROJECT",
       payload: { title: projTitle, type: projType, songIds: Array.from(selected) }
     });
-    // clear local form (reducer will show alerts if invalid)
     setProjTitle("");
     setSelected(new Set());
   };
@@ -460,7 +462,7 @@ function Projects({ state, dispatch }) {
 
   return (
     <Screen>
-      <TopGrad title="Projects" subtitle="Write • Release • Compile" />
+      <TopGrad title="Studio" subtitle="Write • Release • Compile" />
 
       <div className="grid gap-4">
         {/* Write single */}
@@ -571,86 +573,99 @@ function Projects({ state, dispatch }) {
   );
 }
 
-function Platforms() {
+// --------- MEDIA (Charts inside)
+function Media({ state }) {
+  const [tab, setTab] = useState("Promo"); // "Promo" | "Charts"
+  const hasRelease = state.releases.length > 0;
+
   return (
     <Screen>
-      <TopGrad title="Platforms" subtitle="Aurafy • StreamBox (coming soon)" />
-      <Panel>
-        <div className={`${brand.dim}`}>
-          Manage music/video releases per platform, set promotions, and see per-platform payouts.
-          This is a scaffold page—functionality coming next.
+      <TopGrad title="Media" subtitle="Social & Charts" />
+      <Panel className="p-0 overflow-hidden">
+        <div className="flex">
+          {["Promo", "Charts"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-3 text-sm font-semibold ${tab === t ? "bg-white/10" : "bg-white/[0.04]"}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="p-4">
+          {tab === "Promo" && (
+            <div className="grid gap-3">
+              <div className="font-semibold">Social & Promotion (coming soon)</div>
+              <div className={`${brand.dim}`}>Schedule posts, collabs, and press to boost discovery.</div>
+            </div>
+          )}
+          {tab === "Charts" && (
+            hasRelease ? <ChartsInner state={state} /> : (
+              <div className="grid gap-2">
+                <div className="text-lg font-semibold">Charts Locked</div>
+                <div className={`${brand.dim}`}>Release at least one single or project to unlock Charts.</div>
+              </div>
+            )
+          )}
         </div>
       </Panel>
     </Screen>
   );
 }
 
-function Activities() {
-  return (
-    <Screen>
-      <TopGrad title="Activities" subtitle="Jobs & Gigs (coming soon)" />
-      <Panel><div className={`${brand.dim}`}>Take small gigs to earn money, recover energy, and build rep.</div></Panel>
-    </Screen>
-  );
-}
-
-function MediaPromo() {
-  return (
-    <Screen>
-      <TopGrad title="Media & Promo" subtitle="Social tools (coming soon)" />
-      <Panel><div className={`${brand.dim}`}>Schedule posts, collabs, and press to boost discovery.</div></Panel>
-    </Screen>
-  );
-}
-
-function Business() {
-  return (
-    <Screen>
-      <TopGrad title="Business" subtitle="Income • Expenses (coming soon)" />
-      <Panel><div className={`${brand.dim}`}>Track payouts, advances, and costs. Plan budgets and tours.</div></Panel>
-    </Screen>
-  );
-}
-
-function Life() {
-  return (
-    <Screen>
-      <TopGrad title="Life" subtitle="Personal decisions (coming soon)" />
-      <Panel><div className={`${brand.dim}`}>Hobbies, rest, relationships—balance your lifestyle.</div></Panel>
-    </Screen>
-  );
-}
-
-function Charts({ state }) {
-  // rank by latest-week streams
+// charts UI reused inside Media
+function ChartsInner({ state }) {
   const ranked = [...state.releases]
     .map((r) => ({ ...r, weekStreams: r.streamsHistory.at(-1) ?? 0 }))
     .sort((a, b) => b.weekStreams - a.weekStreams);
 
+  if (ranked.length === 0) return <div className={`${brand.dim}`}>No chart entries yet.</div>;
+
+  return (
+    <div className="grid gap-2">
+      {ranked.map((r, i) => (
+        <Panel key={r.id} className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 text-center text-lg font-extrabold">{i + 1}</div>
+            <div>
+              <div className="font-semibold">
+                {r.title}
+                {r.type && <span className="ml-2 text-xs rounded border border-white/15 px-2 py-0.5">{r.type}</span>}
+              </div>
+              <div className={`${brand.dim} text-sm`}>Wks {r.weeksOn} • Peak {r.peakPos ?? "—"} • LW {r.lastWeekPos ?? "—"}</div>
+            </div>
+          </div>
+          <div className={`${brand.dim}`}>{r.weekStreams.toLocaleString()} streams</div>
+        </Panel>
+      ))}
+    </div>
+  );
+}
+
+// --------- ACTIVITIES
+function Activities() {
   return (
     <Screen>
-      <TopGrad title="Charts" subtitle="Hot 100" />
-      {ranked.length === 0 ? (
-        <Panel>No chart entries yet.</Panel>
-      ) : (
-        <div className="grid gap-2">
-          {ranked.map((r, i) => (
-            <Panel key={r.id} className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 text-center text-lg font-extrabold">{i + 1}</div>
-                <div>
-                  <div className="font-semibold">
-                    {r.title}
-                    {r.type && <span className="ml-2 text-xs rounded border border-white/15 px-2 py-0.5">{r.type}</span>}
-                  </div>
-                  <div className={`${brand.dim} text-sm`}>Wks {r.weeksOn} • Peak {r.peakPos ?? "—"} • LW {r.lastWeekPos ?? "—"}</div>
-                </div>
-              </div>
-              <div className={`${brand.dim}`}>{r.weekStreams.toLocaleString()} streams</div>
-            </Panel>
-          ))}
-        </div>
-      )}
+      <TopGrad title="Activities" subtitle="Skills • Jobs • Shop • Finance" />
+      <div className="grid gap-4">
+        <Panel>
+          <div className="font-semibold mb-1">Skills (coming soon)</div>
+          <div className={`${brand.dim}`}>Upskill to improve song quality, promo impact, and earnings.</div>
+        </Panel>
+        <Panel>
+          <div className="font-semibold mb-1">Jobs & Gigs (coming soon)</div>
+          <div className={`${brand.dim}`}>Take gigs to earn cash, gain rep, or recover inspiration.</div>
+        </Panel>
+        <Panel>
+          <div className="font-semibold mb-1">Shop (coming soon)</div>
+          <div className={`${brand.dim}`}>Buy gear and items that affect stats and production.</div>
+        </Panel>
+        <Panel>
+          <div className="font-semibold mb-1">Finance (coming soon)</div>
+          <div className={`${brand.dim}`}>Track income and expenses from releases and activities.</div>
+        </Panel>
+      </div>
     </Screen>
   );
 }
@@ -698,28 +713,28 @@ function Settings({ dispatch }) {
 }
 
 // --------- Shell
-const ALL_TABS = ["Home", "Projects", "Platforms", "Charts", "Activities", "Media & Promo", "Business", "Life", "Create", "Settings"];
+const NAV = [
+  { key: "Home", label: "Home", icon: "🏠" },
+  { key: "Studio", label: "Studio", icon: "🎛️" },
+  { key: "Media", label: "Media", icon: "📣" },
+  { key: "Activities", label: "Activities", icon: "🧭" },
+  { key: "Settings", label: "Settings", icon: "⚙️" }
+];
 
 export default function App() {
   const [state, dispatch] = useSavedReducer();
   const [tab, setTab] = useState("Home");
   const [showStartup, setShowStartup] = useState(true);
 
-  // First-time: if no save, push to Create; if save exists, stay on Startup
+  // decide first route once startup is dismissed
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) setTab("Create");
-  }, []);
+    if (!showStartup) {
+      if (state.profile) setTab("Home");
+      else setTab("Create");
+    }
+  }, [showStartup, state.profile]);
 
-  // After profile exists, make sure we are not stuck on Create
-  useEffect(() => {
-    if (state.profile && tab === "Create") setTab("Home");
-  }, [state.profile, tab]);
-
-  const visibleTabs = ALL_TABS.filter((t) => {
-    if (t === "Create" && state.profile) return false;
-    return true;
-  });
+  const started = !!state.profile; // has created/loaded a profile
 
   return (
     <div className={`${brand.bg} min-h-screen`}>
@@ -727,44 +742,43 @@ export default function App() {
       {showStartup && (
         <Startup
           hasSave={!!localStorage.getItem(STORAGE_KEY)}
-          onContinue={() => {
-            setShowStartup(false);
-            setTab(state.profile ? "Home" : "Create");
-          }}
+          onContinue={() => setShowStartup(false)}
           onNewGame={() => {
-            // wipe save + restart fresh create
             dispatch({ type: "DELETE_SAVE" });
             localStorage.removeItem(STORAGE_KEY);
             setShowStartup(false);
-            setTab("Create");
           }}
         />
       )}
 
-      {!showStartup && (
+      {/* When startup is gone but no profile yet → Create only (no nav) */}
+      {!showStartup && !started && <Create dispatch={dispatch} />}
+
+      {/* Main app once a profile exists */}
+      {!showStartup && started && (
         <>
           {tab === "Home" && <Home state={state} dispatch={dispatch} />}
-          {tab === "Projects" && <Projects state={state} dispatch={dispatch} />}
-          {tab === "Platforms" && <Platforms />}
-          {tab === "Charts" && <Charts state={state} />}
+          {tab === "Studio" && <Studio state={state} dispatch={dispatch} />}
+          {tab === "Media" && <Media state={state} />}
           {tab === "Activities" && <Activities />}
-          {tab === "Media & Promo" && <MediaPromo />}
-          {tab === "Business" && <Business />}
-          {tab === "Life" && <Life />}
-          {tab === "Create" && <Create dispatch={dispatch} />}
           {tab === "Settings" && <Settings dispatch={dispatch} />}
 
-          <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-black/40 backdrop-blur">
-            <div className="mx-auto max-w-3xl px-3 py-3 grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {visibleTabs.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`rounded-xl px-3 py-2 text-sm ${tab === t ? "bg-white/10" : "bg-white/[0.03]"}`}
-                >
-                  {t}
-                </button>
-              ))}
+          <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-black/50 backdrop-blur supports-[backdrop-filter]:bg-black/30">
+            <div className="mx-auto max-w-3xl px-3 py-2 grid grid-cols-5 gap-2">
+              {NAV.map((n) => {
+                const active = tab === n.key;
+                return (
+                  <button
+                    key={n.key}
+                    onClick={() => setTab(n.key)}
+                    className={`rounded-xl px-3 py-2 text-xs sm:text-sm flex flex-col items-center justify-center ${active ? "bg-white/10" : "bg-white/[0.03]"}`}
+                    aria-label={n.label}
+                  >
+                    <span className="text-lg leading-none">{n.icon}</span>
+                    <span className="mt-0.5">{n.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </nav>
         </>
