@@ -56,7 +56,7 @@ const PROJECT_RULES = {
 
 // --------- state
 const initialState = {
-  profile: null, // {name, age, year, gender, difficulty}
+  profile: null, // {firstName, lastName, artistName, age, year, gender, difficulty}
   time: { week: 1, year: 2025 },
   stats: { popularity: 1, inspiration: 100, reputation: 50, energy: ENERGY_MAX, money: 1000 },
   drafts: [],
@@ -67,8 +67,25 @@ const initialState = {
 
 function reducer(state, action) {
   switch (action.type) {
-    case "LOAD":
-      return action.payload ?? state;
+    case "LOAD": {
+      const payload = action.payload;
+      if (!payload) return state;
+      
+      // Migration: convert old profile.name to new schema
+      if (payload.profile?.name && !payload.profile.artistName) {
+        payload.profile = {
+          firstName: "",
+          lastName: "",
+          artistName: payload.profile.name,
+          age: payload.profile.age || "",
+          year: payload.profile.year || "2025",
+          gender: payload.profile.gender || "",
+          difficulty: payload.profile.difficulty || "Normal"
+        };
+      }
+      
+      return payload;
+    }
 
     case "CREATE_PROFILE": {
       const p = action.payload;
@@ -76,7 +93,7 @@ function reducer(state, action) {
         ...state,
         profile: p,
         time: { week: 1, year: Number(p.year) || 2025 },
-        alerts: [{ id: uid(), kind: "info", msg: `Welcome, ${p.name}!`, t: Date.now() }, ...state.alerts]
+        alerts: [{ id: uid(), kind: "info", msg: `Welcome, ${p.artistName}!`, t: Date.now() }, ...state.alerts]
       };
     }
 
@@ -299,10 +316,12 @@ const TopGrad = ({ title, subtitle, right }) => (
   </div>
 );
 
-// Floating bottom action (keeps primary CTA reachable on mobile)
+// Floating bottom action - centered, with mobile-safe spacing
 const BottomAction = ({ children }) => (
-  <div className="fixed bottom-20 left-0 right-0 flex justify-center pointer-events-none">
-    <div className="pointer-events-auto">{children}</div>
+  <div className="fixed z-40 left-0 right-0 flex justify-center pointer-events-none bottom-24 md:bottom-20">
+    <div className="pointer-events-auto">
+      {children}
+    </div>
   </div>
 );
 
@@ -358,11 +377,13 @@ function Home({ state, dispatch }) {
           <div className="flex-1">
             <div className={`${brand.dim} text-sm`}>Artist</div>
             <div className="text-lg font-semibold">
-              {state.profile?.name ?? "— (start a new game)"}
-              {state.profile && (
-                <span className={`ml-2 text-sm ${brand.dim}`}>• Age {currentAge(state.profile, state.time)}</span>
-              )}
+              {state.profile?.artistName ?? "— (start a new game)"}
             </div>
+            {state.profile && (
+              <div className={`${brand.dim} text-sm`}>
+                {`${state.profile.firstName ?? ""} ${state.profile.lastName ?? ""}`.trim() || "—"} • Age {state.profile.age || "—"}
+              </div>
+            )}
           </div>
         </Panel>
 
@@ -378,7 +399,9 @@ function Home({ state, dispatch }) {
 
         <Panel>
           <div className="font-semibold mb-2">Upcoming</div>
-          <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
+          <div className="max-h-56 md:max-h-64 overflow-y-auto">
+            <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
+          </div>
         </Panel>
       </div>
 
@@ -396,7 +419,7 @@ function Home({ state, dispatch }) {
 }
 
 function Create({ dispatch }) {
-  const [form, setForm] = useState({ name: "", age: "", year: "2025", gender: "", difficulty: "Normal" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", artistName: "", age: "", year: "2025", gender: "", difficulty: "Normal" });
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
@@ -410,11 +433,25 @@ function Create({ dispatch }) {
         </div>
         <div className="p-6 grid gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="First Name">
+              <input
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.firstName}
+                onChange={(e) => update("firstName", e.target.value)}
+              />
+            </Field>
+            <Field label="Last Name">
+              <input
+                className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
+                value={form.lastName}
+                onChange={(e) => update("lastName", e.target.value)}
+              />
+            </Field>
             <Field label="Artist Name">
               <input
                 className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none"
-                value={form.name}
-                onChange={(e) => update("name", e.target.value)}
+                value={form.artistName}
+                onChange={(e) => update("artistName", e.target.value)}
               />
             </Field>
             <Field label="Age">
@@ -463,8 +500,8 @@ function Create({ dispatch }) {
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => {
-                if (!form.name.trim()) {
-                  alert("Please enter a name.");
+                if (!form.firstName.trim() || !form.lastName.trim() || !form.artistName.trim()) {
+                  alert("Please enter first name, last name, and artist name.");
                   return;
                 }
                 dispatch({ type: "CREATE_PROFILE", payload: form });
