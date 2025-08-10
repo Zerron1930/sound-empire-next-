@@ -1,10 +1,13 @@
 import React, { useEffect, useReducer, useState } from "react";
 
 /* ==========================================================
-   Sound Empire — Next (Functional MVP)
-   - Gradient UI + Character Creation
-   - Home (no quick actions), Projects, Charts, Alerts, Settings, Create
-   - Write -> Release -> Advance Week -> Charts & Money
+   Sound Empire — Next
+   - Blue gradient theme + debranded Create page
+   - Startup screen (Continue / New Game)
+   - Hide Create tab after profile exists
+   - Projects: EPs (3–7) & Albums (8–14) from drafts
+   - Skeleton pages: Platforms, Activities, Media & Promo, Business, Life
+   - "Write Song" costs Energy/Inspiration
    - LocalStorage persistence
    ========================================================== */
 
@@ -33,6 +36,14 @@ const BASE_DISCOVERY = 500;
 const POP_WEIGHT = 60;
 const REP_WEIGHT = 40;
 const ENERGY_MAX = 100;
+const WRITE_COST_ENERGY = 10;
+const WRITE_COST_INSPIRATION = 15;
+
+// Project rules
+const PROJECT_RULES = {
+  EP: { min: 3, max: 7 },
+  ALBUM: { min: 8, max: 14 }
+};
 
 // --------- state
 const initialState = {
@@ -40,7 +51,8 @@ const initialState = {
   time: { week: 1, year: 2025 },
   stats: { popularity: 1, inspiration: 100, reputation: 50, energy: ENERGY_MAX, money: 1000 },
   drafts: [],
-  releases: [],
+  releases: [],   // singles + project entries (project shows as a single line item)
+  projects: [],   // detailed EP/ALBUM objects with track lists
   alerts: []
 };
 
@@ -60,10 +72,29 @@ function reducer(state, action) {
     }
 
     case "WRITE_SONG": {
+      // apply small costs
+      if (state.stats.energy < WRITE_COST_ENERGY || state.stats.inspiration < WRITE_COST_INSPIRATION) {
+        return {
+          ...state,
+          alerts: [
+            { id: uid(), kind: "info", msg: "Too tired to write. Rest a bit first.", t: Date.now() },
+            ...state.alerts
+          ]
+        };
+      }
+
+      const energyLeft = clamp(state.stats.energy - WRITE_COST_ENERGY, 0, ENERGY_MAX);
+      const inspLeft = clamp(state.stats.inspiration - WRITE_COST_INSPIRATION, 0, 100);
+
       const title = action.payload || `Untitled ${state.drafts.length + 1}`;
       const quality = Math.floor(55 + Math.random() * 45); // 55-100
       const draft = { id: uid(), title, quality };
-      return { ...state, drafts: [draft, ...state.drafts] };
+
+      return {
+        ...state,
+        drafts: [draft, ...state.drafts],
+        stats: { ...state.stats, inspiration: inspLeft, energy: energyLeft }
+      };
     }
 
     case "RELEASE_SONG": {
@@ -86,6 +117,64 @@ function reducer(state, action) {
         drafts: state.drafts.filter((x) => x.id !== id),
         releases: [rel, ...state.releases],
         alerts: [{ id: uid(), kind: "success", msg: `Released "${d.title}"`, t: Date.now() }, ...state.alerts]
+      };
+    }
+
+    // Create & release an EP/Album from selected drafts
+    case "CREATE_PROJECT": {
+      const { title, type, songIds } = action.payload; // type: "EP" | "ALBUM"
+      const rules = PROJECT_RULES[type];
+      if (!rules) return state;
+
+      const chosen = state.drafts.filter(d => songIds.includes(d.id));
+      if (chosen.length < rules.min || chosen.length > rules.max) {
+        return {
+          ...state,
+          alerts: [
+            { id: uid(), kind: "info", msg: `${type} must have ${rules.min}-${rules.max} tracks.`, t: Date.now() },
+            ...state.alerts
+          ]
+        };
+      }
+      if (!title?.trim()) {
+        return {
+          ...state,
+          alerts: [{ id: uid(), kind: "info", msg: "Enter a project title.", t: Date.now() }, ...state.alerts]
+        };
+      }
+
+      const avgQuality = Math.round(chosen.reduce((s, d) => s + d.quality, 0) / chosen.length);
+
+      const project = {
+        id: uid(),
+        title: title.trim(),
+        type,  // "EP" | "ALBUM"
+        songs: chosen.map(d => ({ id: d.id, title: d.title, quality: d.quality })),
+        weekReleased: state.time.week,
+        yearReleased: state.time.year,
+        streamsHistory: []
+      };
+
+      // Project appears on charts as one release entry too
+      const release = {
+        id: project.id, // share id for easy linking
+        title: `${project.title} (${type})`,
+        type,
+        quality: avgQuality,
+        weekReleased: state.time.week,
+        yearReleased: state.time.year,
+        weeksOn: 0,
+        peakPos: null,
+        lastWeekPos: null,
+        streamsHistory: []
+      };
+
+      return {
+        ...state,
+        drafts: state.drafts.filter(d => !songIds.includes(d.id)),  // remove used drafts
+        projects: [project, ...state.projects],
+        releases: [release, ...state.releases],
+        alerts: [{ id: uid(), kind: "success", msg: `Released ${type}: "${project.title}"`, t: Date.now() }, ...state.alerts]
       };
     }
 
@@ -195,7 +284,7 @@ const Screen = ({ children }) => <div className="px-4 pb-28 pt-6">{children}</di
 
 const TopGrad = ({ title, subtitle, right }) => (
   <div className="mb-4">
-    <div className={`w-full h-24 rounded-2xl bg-gradient-to-br ${brand.purpleGrad} ${brand.glow} p-5 flex items-end justify-between`}>
+    <div className={`w-full h-24 rounded-2xl bg-gradient-to-br ${brand.blueGrad} ${brand.glow} p-5 flex items-end justify-between`}>
       <div>
         <div className="text-xl font-extrabold tracking-tight">{title}</div>
         {subtitle && <div className="text-white/80 -mt-0.5">{subtitle}</div>}
@@ -204,6 +293,31 @@ const TopGrad = ({ title, subtitle, right }) => (
     </div>
   </div>
 );
+
+// --------- Startup
+function Startup({ hasSave, onContinue, onNewGame }) {
+  return (
+    <Screen>
+      <TopGrad title="Sound Empire" subtitle="Start" />
+      <Panel className="grid gap-4">
+        {hasSave ? (
+          <>
+            <div className={`${brand.dim}`}>We found a previous save on this device.</div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button onClick={onContinue} className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Continue</button>
+              <button onClick={onNewGame} className="rounded-xl px-4 py-2 bg-white/10">New Game</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={`${brand.dim}`}>No save found. Create your artist to begin.</div>
+            <button onClick={onNewGame} className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}>Create New Artist</button>
+          </>
+        )}
+      </Panel>
+    </Screen>
+  );
+}
 
 // --------- Pages
 function Home({ state, dispatch }) {
@@ -229,10 +343,10 @@ function Home({ state, dispatch }) {
 
       <div className="grid grid-cols-1 gap-4">
         <Panel className="flex items-center gap-4">
-          <div className="size-14 rounded-full bg-white/5 grid place-items-center">✦</div>
+          <div className="size-14 rounded-full bg-white/5 grid place-items-center">🎤</div>
           <div className="flex-1">
             <div className={`${brand.dim} text-sm`}>Artist</div>
-            <div className="text-lg font-semibold">{state.profile?.name ?? "— (go to Create tab)"}</div>
+            <div className="text-lg font-semibold">{state.profile?.name ?? "— (start a new game)"}</div>
           </div>
         </Panel>
 
@@ -243,6 +357,7 @@ function Home({ state, dispatch }) {
             <span>Popularity {state.stats.popularity}%</span>
             <span>Reputation {state.stats.reputation}%</span>
             <span>Energy {state.stats.energy}/100</span>
+            <span>Inspiration {state.stats.inspiration}/100</span>
           </div>
         </Panel>
       </div>
@@ -256,9 +371,9 @@ function Create({ dispatch }) {
 
   return (
     <Screen>
-      <TopGrad title="ST✦GE" subtitle="Character Creation" />
+      <TopGrad title="Create Artist" subtitle="Character Setup" />
       <Panel className="p-0 overflow-hidden">
-        <div className={`p-6 bg-gradient-to-br ${brand.purpleGrad}`}>
+        <div className={`p-6 bg-gradient-to-br ${brand.blueGrad}`}>
           <div className="h-40 w-full rounded-xl bg-black/20 border border-white/10 grid place-items-center">
             <div className="text-white/80">Add default picture (optional)</div>
           </div>
@@ -295,7 +410,7 @@ function Create({ dispatch }) {
                 if (!form.name.trim()) { alert("Please enter a name."); return; }
                 dispatch({ type: "CREATE_PROFILE", payload: form });
               }}
-              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.purpleGrad}`}
+              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}
             >
               Create artist
             </button>
@@ -318,10 +433,37 @@ function Field({ label, children }) {
 function Projects({ state, dispatch }) {
   const [title, setTitle] = useState("");
 
+  // project creation state
+  const [selected, setSelected] = useState(new Set());
+  const [projTitle, setProjTitle] = useState("");
+  const [projType, setProjType] = useState("EP");
+
+  const toggleSelect = (id) =>
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const createProject = () => {
+    dispatch({
+      type: "CREATE_PROJECT",
+      payload: { title: projTitle, type: projType, songIds: Array.from(selected) }
+    });
+    // clear local form (reducer will show alerts if invalid)
+    setProjTitle("");
+    setSelected(new Set());
+  };
+
+  const rules = PROJECT_RULES[projType];
+  const selCount = selected.size;
+
   return (
     <Screen>
-      <TopGrad title="Projects" subtitle="Write • Release" />
+      <TopGrad title="Projects" subtitle="Write • Release • Compile" />
+
       <div className="grid gap-4">
+        {/* Write single */}
         <Panel>
           <div className="flex flex-col md:flex-row gap-3">
             <input
@@ -335,47 +477,146 @@ function Projects({ state, dispatch }) {
                 dispatch({ type: "WRITE_SONG", payload: title.trim() || undefined });
                 setTitle("");
               }}
-              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.purpleGrad}`}
+              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}
             >
               Write Song
             </button>
           </div>
+          <div className={`${brand.dim} text-xs mt-2`}>
+            Costs {WRITE_COST_ENERGY} Energy / {WRITE_COST_INSPIRATION} Inspiration
+          </div>
         </Panel>
 
+        {/* Unreleased drafts (selectable) */}
         <Panel>
           <div className="font-semibold mb-2">Unreleased Tracks</div>
           {state.drafts.length === 0 && <div className={`${brand.dim}`}>No drafts yet.</div>}
           <div className="grid gap-2">
-            {state.drafts.map((d) => (
-              <div key={d.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                <div>
-                  <div className="font-semibold">{d.title}</div>
-                  <div className={`${brand.dim} text-sm`}>Quality {d.quality}</div>
+            {state.drafts.map((d) => {
+              const checked = selected.has(d.id);
+              return (
+                <div key={d.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSelect(d.id)}
+                      className="accent-white/80"
+                    />
+                    <div>
+                      <div className="font-semibold">{d.title}</div>
+                      <div className={`${brand.dim} text-sm`}>Quality {d.quality}</div>
+                    </div>
+                  </label>
+                  <button
+                    onClick={() => dispatch({ type: "RELEASE_SONG", payload: d.id })}
+                    className="rounded-lg px-3 py-1 bg-black/30 border border-white/10"
+                  >
+                    Release Single
+                  </button>
                 </div>
-                <button
-                  onClick={() => dispatch({ type: "RELEASE_SONG", payload: d.id })}
-                  className="rounded-lg px-3 py-1 bg-black/30 border border-white/10"
-                >
-                  Release
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Panel>
 
+        {/* Create EP/Album */}
+        <Panel>
+          <div className="font-semibold mb-3">Create Project (EP / Album)</div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input
+              placeholder="Project title"
+              value={projTitle}
+              onChange={(e) => setProjTitle(e.target.value)}
+              className="rounded-xl bg-white/5 px-3 py-2 outline-none"
+            />
+            <select
+              value={projType}
+              onChange={(e) => setProjType(e.target.value)}
+              className="rounded-xl bg-white/5 px-3 py-2 outline-none"
+            >
+              <option>EP</option>
+              <option>ALBUM</option>
+            </select>
+            <button
+              onClick={createProject}
+              className={`rounded-xl px-4 py-2 font-semibold bg-gradient-to-br ${brand.blueGrad}`}
+            >
+              Create & Release {projType}
+            </button>
+          </div>
+          <div className={`${brand.dim} text-xs mt-2`}>
+            Selected: {selCount} • Required for {projType}: {rules.min}–{rules.max} tracks
+          </div>
+        </Panel>
+
+        {/* Released (singles + projects) */}
         <Panel>
           <div className="font-semibold mb-2">Released</div>
-          {state.releases.length === 0 && <div className={`${brand.dim}`}>No released songs yet.</div>}
+          {state.releases.length === 0 && <div className={`${brand.dim}`}>No released music yet.</div>}
           <div className="grid gap-2">
             {state.releases.map((r) => (
               <div key={r.id} className="rounded-xl bg-white/5 px-3 py-2">
-                <div className="font-semibold">{r.title}</div>
+                <div className="font-semibold">
+                  {r.title}
+                  {r.type && <span className="ml-2 text-xs rounded border border-white/15 px-2 py-0.5">{r.type}</span>}
+                </div>
                 <div className={`${brand.dim} text-sm`}>Weeks on chart: {r.weeksOn} • Peak: {r.peakPos ?? "—"}</div>
               </div>
             ))}
           </div>
         </Panel>
       </div>
+    </Screen>
+  );
+}
+
+function Platforms() {
+  return (
+    <Screen>
+      <TopGrad title="Platforms" subtitle="Aurafy • StreamBox (coming soon)" />
+      <Panel>
+        <div className={`${brand.dim}`}>
+          Manage music/video releases per platform, set promotions, and see per-platform payouts.
+          This is a scaffold page—functionality coming next.
+        </div>
+      </Panel>
+    </Screen>
+  );
+}
+
+function Activities() {
+  return (
+    <Screen>
+      <TopGrad title="Activities" subtitle="Jobs & Gigs (coming soon)" />
+      <Panel><div className={`${brand.dim}`}>Take small gigs to earn money, recover energy, and build rep.</div></Panel>
+    </Screen>
+  );
+}
+
+function MediaPromo() {
+  return (
+    <Screen>
+      <TopGrad title="Media & Promo" subtitle="Social tools (coming soon)" />
+      <Panel><div className={`${brand.dim}`}>Schedule posts, collabs, and press to boost discovery.</div></Panel>
+    </Screen>
+  );
+}
+
+function Business() {
+  return (
+    <Screen>
+      <TopGrad title="Business" subtitle="Income • Expenses (coming soon)" />
+      <Panel><div className={`${brand.dim}`}>Track payouts, advances, and costs. Plan budgets and tours.</div></Panel>
+    </Screen>
+  );
+}
+
+function Life() {
+  return (
+    <Screen>
+      <TopGrad title="Life" subtitle="Personal decisions (coming soon)" />
+      <Panel><div className={`${brand.dim}`}>Hobbies, rest, relationships—balance your lifestyle.</div></Panel>
     </Screen>
   );
 }
@@ -398,7 +639,10 @@ function Charts({ state }) {
               <div className="flex items-center gap-3">
                 <div className="w-10 text-center text-lg font-extrabold">{i + 1}</div>
                 <div>
-                  <div className="font-semibold">{r.title}</div>
+                  <div className="font-semibold">
+                    {r.title}
+                    {r.type && <span className="ml-2 text-xs rounded border border-white/15 px-2 py-0.5">{r.type}</span>}
+                  </div>
                   <div className={`${brand.dim} text-sm`}>Wks {r.weeksOn} • Peak {r.peakPos ?? "—"} • LW {r.lastWeekPos ?? "—"}</div>
                 </div>
               </div>
@@ -454,39 +698,77 @@ function Settings({ dispatch }) {
 }
 
 // --------- Shell
-const TABS = ["Home", "Projects", "Charts", "Alerts", "Create", "Settings"];
+const ALL_TABS = ["Home", "Projects", "Platforms", "Charts", "Activities", "Media & Promo", "Business", "Life", "Create", "Settings"];
 
 export default function App() {
   const [state, dispatch] = useSavedReducer();
   const [tab, setTab] = useState("Home");
+  const [showStartup, setShowStartup] = useState(true);
 
+  // First-time: if no save, push to Create; if save exists, stay on Startup
   useEffect(() => {
-    // first-time: push to Create if no profile
-    if (!state.profile && tab !== "Create") setTab("Create");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) setTab("Create");
+  }, []);
+
+  // After profile exists, make sure we are not stuck on Create
+  useEffect(() => {
+    if (state.profile && tab === "Create") setTab("Home");
   }, [state.profile, tab]);
+
+  const visibleTabs = ALL_TABS.filter((t) => {
+    if (t === "Create" && state.profile) return false;
+    return true;
+  });
 
   return (
     <div className={`${brand.bg} min-h-screen`}>
-      {tab === "Home" && <Home state={state} dispatch={dispatch} />}
-      {tab === "Projects" && <Projects state={state} dispatch={dispatch} />}
-      {tab === "Charts" && <Charts state={state} />}
-      {tab === "Alerts" && <Alerts state={state} dispatch={dispatch} />}
-      {tab === "Create" && <Create dispatch={dispatch} />}
-      {tab === "Settings" && <Settings dispatch={dispatch} />}
+      {/* Startup overlay */}
+      {showStartup && (
+        <Startup
+          hasSave={!!localStorage.getItem(STORAGE_KEY)}
+          onContinue={() => {
+            setShowStartup(false);
+            setTab(state.profile ? "Home" : "Create");
+          }}
+          onNewGame={() => {
+            // wipe save + restart fresh create
+            dispatch({ type: "DELETE_SAVE" });
+            localStorage.removeItem(STORAGE_KEY);
+            setShowStartup(false);
+            setTab("Create");
+          }}
+        />
+      )}
 
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-black/40 backdrop-blur">
-        <div className="mx-auto max-w-3xl px-3 py-3 grid grid-cols-6 gap-2">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-xl px-3 py-2 text-sm ${tab === t ? "bg-white/10" : "bg-white/[0.03]"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </nav>
+      {!showStartup && (
+        <>
+          {tab === "Home" && <Home state={state} dispatch={dispatch} />}
+          {tab === "Projects" && <Projects state={state} dispatch={dispatch} />}
+          {tab === "Platforms" && <Platforms />}
+          {tab === "Charts" && <Charts state={state} />}
+          {tab === "Activities" && <Activities />}
+          {tab === "Media & Promo" && <MediaPromo />}
+          {tab === "Business" && <Business />}
+          {tab === "Life" && <Life />}
+          {tab === "Create" && <Create dispatch={dispatch} />}
+          {tab === "Settings" && <Settings dispatch={dispatch} />}
+
+          <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-black/40 backdrop-blur">
+            <div className="mx-auto max-w-3xl px-3 py-3 grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {visibleTabs.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`rounded-xl px-3 py-2 text-sm ${tab === t ? "bg-white/10" : "bg-white/[0.03]"}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </nav>
+        </>
+      )}
     </div>
   );
 }
