@@ -18,13 +18,13 @@ const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 const uid = () => (crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
 const brand = {
-  purpleGrad: "from-[#7C4DFF] to-[#5634D6]",
+  blueGrad: "from-[#3B82F6] to-[#1D4ED8]", // blue-500 → blue-700
   bg: "bg-[#0b0b0f]",
   panel: "bg-[#141418]",
   card: "bg-[#191a20]",
   ring: "ring-1 ring-white/5",
   dim: "text-neutral-400",
-  glow: "shadow-[0_12px_36px_-12px_rgba(124,77,255,.5)]"
+  glow: "shadow-[0_12px_36px_-12px_rgba(59,130,246,.45)]" // blue glow
 };
 
 // --------- constants (easy to tweak)
