@@ -48,6 +48,54 @@ const nextWeeks = (currentWeek, minAhead, maxAhead) => {
 
 const payoutBase = (pop, scale) => Math.round((200 + pop * 12) * scale);
 
+// Industry-style payouts & effects utilities
+// 0–100 popularity → 0.0–1.0
+const popNorm = (pop) => Math.max(0, Math.min(1, pop / 100));
+
+// Typical venue/rate assumptions (very rough but industry-flavored)
+const VENUES = [
+  { key: "club",     cap: 600,  base: 1500 },   // small room / club
+  { key: "theater",  cap: 1800, base: 8000 },   // theater
+  { key: "arena",    cap: 12000,base: 60000 },  // arena
+  { key: "festival", cap: 30000,base: 90000 },  // festival slot
+];
+
+// Probability weights by popularity (festival/arena rarer until you're big)
+function venueWeightsByPop(pop) {
+  const p = popNorm(pop);
+  // start club-heavy, gradually unlock theater, then arena/festival
+  return [
+    0.70 - 0.40*p,          // club
+    0.25 + 0.20*p,          // theater
+    Math.max(0, -0.03 + 0.18*p), // arena (rare < ~60% pop)
+    Math.max(0, -0.07 + 0.15*p)  // festival (rare < ~65% pop)
+  ];
+}
+
+function pickWeighted(items, weights, rnd=Math.random()) {
+  const total = weights.reduce((a,b)=>a+b,0) || 1;
+  let x = rnd * total;
+  for (let i=0;i<items.length;i++){ x -= weights[i]; if (x<=0) return items[i]; }
+  return items[items.length-1];
+}
+
+// Payout guarantee + soft "demand" bonus with chance to sell out
+function computeGigPayout(venue, stats) {
+  const p = popNorm(stats.popularity);
+  const demand = 0.5 + 0.9*p;                   // 0.5–1.4 multiplier
+  const guarantee = venue.base * demand;
+
+  const sellOutChance = Math.max(0, -0.15 + 1.0*p); // ~0–85%
+  const soldOut = Math.random() < sellOutChance;
+  const bonus = soldOut ? venue.base * (0.15 + 0.25*p) : 0;
+
+  // Reputation sweetens the deal a bit
+  const repBoost = 1 + (Math.max(0, stats.reputation-50) / 400); // up to +12.5%
+  const pay = Math.round((guarantee + bonus) * repBoost);
+
+  return { pay, soldOut };
+}
+
 // Generate weekly offers for gigs and interviews
 const generateWeeklyOffers = (currentWeek, currentPop) => {
   const offers = { gigs: [], interviews: [] };
@@ -55,27 +103,27 @@ const generateWeeklyOffers = (currentWeek, currentPop) => {
   // Generate 6-8 gig offers
   const gigCount = 6 + Math.floor(rng() * 3);
   for (let i = 0; i < gigCount; i++) {
-    const subType = weightedPick([
-      ["club", 40],
-      ["concert", 30],
-      ["festival", 18],
-      ["arena", 12],
-    ]);
-
+    // Use venue weights based on popularity
+    const venueWeights = venueWeightsByPop(currentPop);
+    const venue = pickWeighted(VENUES, venueWeights);
+    
+    // Map venue key to subType for compatibility
+    const subType = venue.key;
+    
     const config = {
-      club: { energy: 12, scale: 0.8, popRange: [1, 2], repRange: [0, 1] },
-      concert: { energy: 18, scale: 1.0, popRange: [2, 3], repRange: [0, 1] },
-      festival: { energy: 22, scale: 1.2, popRange: [3, 4], repRange: [-1, 1] },
-      arena: { energy: 28, scale: 1.5, popRange: [4, 5], repRange: [0, 2] },
+      club: { energy: 12, popRange: [1, 2], repRange: [0, 1] },
+      theater: { energy: 18, popRange: [2, 3], repRange: [0, 1] },
+      festival: { energy: 22, popRange: [3, 4], repRange: [-1, 1] },
+      arena: { energy: 28, popRange: [4, 5], repRange: [0, 2] },
     }[subType];
 
-    const week = nextWeeks(currentWeek, 1, 8);
-    const money = payoutBase(currentPop, config.scale + (rng() - 0.5) * 0.2);
+    const week = nextWeeks(currentWeek, 1, 10); // Spread across future weeks
+    const payout = computeGigPayout(venue, { popularity: currentPop, reputation: 50 });
     const popDelta =
       config.popRange[0] +
       Math.floor(rng() * (config.popRange[1] - config.popRange[0] + 1));
     const repDelta =
-      config.repRange[0] +
+      config.popRange[0] +
       Math.floor(rng() * (config.repRange[1] - config.repRange[0] + 1));
 
     offers.gigs.push({
@@ -83,9 +131,10 @@ const generateWeeklyOffers = (currentWeek, currentPop) => {
       subType,
       week,
       energyCost: config.energy,
-      money,
+      money: payout.pay,
       popDelta,
       repDelta,
+      soldOut: payout.soldOut,
     });
   }
 
@@ -98,31 +147,31 @@ const generateWeeklyOffers = (currentWeek, currentPop) => {
       ["tv", 25],
     ]);
 
-    // TV only available if popularity >= 65% or 5% lucky chance
-    if (subType === "tv" && currentPop < 65 && rng() > 0.05) {
+    // TV only available if popularity >= 65% or 2% lucky chance
+    if (subType === "tv" && currentPop < 65 && rng() > 0.02) {
       continue; // Skip this iteration
     }
 
     const config = {
-      radio: { energy: 8, scale: 0.6, popDelta: 1, repDelta: 0 },
+      radio: { energy: 0, scale: 0.6, popDelta: 1, repDelta: 0, money: 100 + Math.floor(rng() * 300) },
       podcast: {
-        energy: 10,
+        energy: 0,
         scale: 0.8,
         popDelta: 1 + Math.floor(rng() * 2),
         repDelta: 0,
+        money: 150 + Math.floor(rng() * 250),
       },
-      tv: { energy: 14, scale: 1.8, popDelta: 5, repDelta: 1 },
+      tv: { energy: 0, scale: 1.8, popDelta: 5, repDelta: 1, money: 0 }, // No stipend for TV
     }[subType];
 
-    const week = nextWeeks(currentWeek, 1, 8);
-    const money = payoutBase(currentPop, config.scale + (rng() - 0.5) * 0.2);
+    const week = nextWeeks(currentWeek, 1, 10); // Spread across future weeks
 
     offers.interviews.push({
       type: "interview",
       subType,
       week,
       energyCost: config.energy,
-      money,
+      money: config.money,
       popDelta: config.popDelta,
       repDelta: config.repDelta,
     });
@@ -188,6 +237,7 @@ const initialState = {
   releases: [], // singles + project entries (project shows as a single line item)
   projects: [], // detailed EP/ALBUM objects with track lists
   alerts: [],
+  weekSnaps: [], // Array<string> for weekly recap - each week overwrites the previous
 };
 
 function reducer(state, action) {
@@ -305,10 +355,20 @@ function reducer(state, action) {
         lastWeekPos: null,
         streamsHistory: [],
       };
+      
+      // Add snap for song release
+      const newSnap = {
+        id: uid(),
+        week: state.time.week,
+        kind: "release",
+        msg: `Your single "${d.title}" released!`,
+      };
+      
       return {
         ...state,
         drafts: state.drafts.filter((x) => x.id !== id),
         releases: [rel, ...state.releases],
+        snaps: [newSnap, ...state.snaps],
         alerts: [
           {
             id: uid(),
@@ -389,11 +449,20 @@ function reducer(state, action) {
         streamsHistory: [],
       };
 
+      // Add snap for project release
+      const newSnap = {
+        id: uid(),
+        week: state.time.week,
+        kind: "release",
+        msg: `Your ${type.toLowerCase()} "${project.title}" released!`,
+      };
+
       return {
         ...state,
         drafts: state.drafts.filter((d) => !songIds.includes(d.id)), // remove used drafts
         projects: [project, ...state.projects],
         releases: [release, ...state.releases],
+        snaps: [newSnap, ...state.snaps],
         alerts: [
           {
             id: uid(),
@@ -409,6 +478,14 @@ function reducer(state, action) {
     case "ADVANCE_WEEK": {
       const { popularity, reputation } = state.stats;
 
+      // Capture pre-week stats for delta calculations
+      const preMoney = state.stats.money;
+      const prePop = state.stats.popularity;
+      const preRep = state.stats.reputation;
+
+      // Create local array for weekly snaps
+      const snaps = [];
+
       // Process scheduled events for this week first
       const dueEvents = state.events.scheduled.filter(
         (e) => e.week === state.time.week,
@@ -421,6 +498,7 @@ function reducer(state, action) {
       const completedEvents = [];
       const postponedEvents = [];
       const eventEffects = { money: 0, pop: 0, rep: 0 };
+      let hasViralEvent = false;
 
       // Process events until energy runs out
       for (const event of sortedDueEvents) {
@@ -433,24 +511,24 @@ function reducer(state, action) {
 
           // Check for viral interviews
           let viralBonus = "";
+          let viralPop = 0;
           if (
             event.type === "interview" &&
             ["radio", "podcast"].includes(event.subType)
           ) {
-            if (rng() < 0.08) {
-              // 8% viral chance
-              const extraMoney = payoutBase(popularity, 0.9);
-              const extraPop = 3;
-              eventEffects.money += extraMoney;
-              eventEffects.pop += extraPop;
-              viralBonus = ` (WENT VIRAL! +${fmtMoney(extraMoney)}, Pop +${extraPop})`;
+            if (rng() < 0.05) { // 5% viral chance
+              const extraPop = 1 + Math.floor(rng() * 3); // +1 to +3%
+              viralPop = extraPop;
+              viralBonus = ` (WENT VIRAL! +${extraPop}% Popularity)`;
+              hasViralEvent = true;
             }
           }
 
           completedEvents.push({
             ...event,
             viralBonus,
-            message: `Completed ${event.subType} ${event.type} (Week ${state.time.week}): +${fmtMoney(event.money)}, Pop +${event.popDelta}, Rep ${event.repDelta > 0 ? "+" : ""}${event.repDelta}${viralBonus}`,
+            viralPop,
+            message: `Completed ${event.subType} ${event.type} (Week ${state.time.week}): +${fmtMoney(event.money)}, Pop +${event.popDelta + viralPop}, Rep ${event.repDelta > 0 ? "+" : ""}${event.repDelta}${viralBonus}`,
           });
         } else {
           // Postpone the event
@@ -504,6 +582,35 @@ function reducer(state, action) {
       );
       const pay = weekStreams * PAYOUT_PER_STREAM;
 
+      // Add streams snap if non-zero
+      if (weekStreams > 0) {
+        snaps.push(`Streams: ${weekStreams.toLocaleString()} (+${fmtMoney(pay)})`);
+      }
+
+      // Add event-related snaps
+      if (eventEffects.money !== 0) {
+        snaps.push(`Gigs & interviews: +${fmtMoney(eventEffects.money)}`);
+      }
+      if (eventEffects.pop !== 0) {
+        snaps.push(`Popularity: ${eventEffects.pop > 0 ? '+' : ''}${eventEffects.pop}% from events`);
+      }
+      if (eventEffects.rep !== 0) {
+        snaps.push(`Reputation: ${eventEffects.rep > 0 ? '+' : ''}${eventEffects.rep}% from events`);
+      }
+
+      // Add viral event snap
+      if (hasViralEvent) {
+        snaps.push('One of your interviews went viral! Extra discovery this week.');
+      }
+
+      // Detect releases this week
+      const thisWeekReleases = state.releases.filter(
+        (r) => r.weekReleased === state.time.week && r.yearReleased === state.time.year
+      );
+      thisWeekReleases.forEach((r) => {
+        snaps.push(`Released: "${r.title}"`);
+      });
+
       // stat drift from streams (existing)
       const popFromStreams = weekStreams / 200000;
       const repDrift = 0.2;
@@ -540,6 +647,22 @@ function reducer(state, action) {
 
       // Generate new offers for the new week
       const newOffers = generateWeeklyOffers(week, newPop);
+
+      // Compute final stat deltas
+      const moneyDelta = nextMoney - preMoney;
+      const popDelta = newPop - prePop;
+      const repDelta = newRep - preRep;
+
+      // Add stat delta snaps if not already covered
+      if (popDelta !== 0 && eventEffects.pop === 0) {
+        snaps.push(`Popularity change: ${popDelta > 0 ? '+' : ''}${popDelta}%`);
+      }
+      if (repDelta !== 0 && eventEffects.rep === 0) {
+        snaps.push(`Reputation change: ${repDelta > 0 ? '+' : ''}${repDelta}%`);
+      }
+      if (moneyDelta !== 0 && eventEffects.money === 0) {
+        snaps.push(`Money change: ${moneyDelta > 0 ? '+' : ''}${fmtMoney(moneyDelta)}`);
+      }
 
       // Build alerts
       const alerts = [
@@ -589,6 +712,7 @@ function reducer(state, action) {
           money: nextMoney,
         },
         alerts: [...alerts, ...state.alerts],
+        weekSnaps: snaps, // Each week overwrites the previous list
       };
     }
 
@@ -875,7 +999,7 @@ function Home({ state, dispatch }) {
                         {(() => {
                           const icons = {
                             club: "🎭",
-                            concert: "🎪",
+                            theater: "🎪",
                             festival: "🎡",
                             arena: "🏟️",
                             radio: "📻",
@@ -910,6 +1034,34 @@ function Home({ state, dispatch }) {
                     </div>
                   </div>
                 ))}
+              </div>
+            );
+          })()}
+        </Panel>
+
+        {/* This Week - Weekly Snaps */}
+        <Panel className="mt-3">
+          <div className="font-semibold mb-2">This Week</div>
+          {(() => {
+            const weekSnaps = state.weekSnaps || [];
+            
+            return weekSnaps.length === 0 ? (
+              <div className={`${brand.dim}`}>No updates yet.</div>
+            ) : (
+              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                {weekSnaps.slice(0, 8).map((snap, index) => (
+                  <div
+                    key={index}
+                    className="rounded-lg bg-white/5 px-3 py-2 text-sm"
+                  >
+                    {snap}
+                  </div>
+                ))}
+                {weekSnaps.length > 8 && (
+                  <div className={`${brand.dim} text-xs text-center py-1`}>
+                    +{weekSnaps.length - 8} more updates
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1219,205 +1371,21 @@ function Studio({ state, dispatch }) {
 // --------- MEDIA (Charts inside)
 function Media({ state, dispatch }) {
   const [tab, setTab] = useState("Promo"); // "Promo" | "Charts"
-  const [showGigs, setShowGigs] = useState(false);
-  const [showInterviews, setShowInterviews] = useState(false);
   const hasRelease = state.releases.length > 0;
-
-  // Generate offers if none exist
-  useEffect(() => {
-    if (
-      state.events.offers.gigs.length === 0 &&
-      state.events.offers.interviews.length === 0
-    ) {
-      dispatch({ type: "GENERATE_OFFERS" });
-    }
-  }, [state.time.week, dispatch]);
-
-  const handleBookEvent = (eventData) => {
-    dispatch({ type: "BOOK_EVENT", payload: eventData });
-  };
-
-  const getEventIcon = (subType) => {
-    const icons = {
-      club: "🎭",
-      concert: "🎪",
-      festival: "🎡",
-      arena: "🏟️",
-      radio: "📻",
-      podcast: "🎙️",
-      tv: "📺",
-    };
-    return icons[subType] || "🎤";
-  };
-
-  const getEventName = (subType) => {
-    const names = {
-      club: "Club",
-      concert: "Concert",
-      festival: "Festival",
-      arena: "Arena",
-      radio: "Radio",
-      podcast: "Podcast",
-      tv: "TV",
-    };
-    return names[subType] || subType;
-  };
 
   return (
     <Screen>
       <TopGrad title="Media" subtitle="Social & Charts" />
 
-      {/* Event Booking Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <Panel className="text-center">
-          <div className="text-2xl mb-2">🎸</div>
-          <div className="font-semibold mb-2">Book Gigs</div>
-          <div className={`${brand.dim} text-sm mb-3`}>
-            {state.events.scheduled.filter((e) => e.type === "gig").length}/5
-            scheduled
+      <Panel className="mb-4">
+        <div className="text-center py-4">
+          <div className="text-2xl mb-2">📱</div>
+          <div className="font-semibold mb-2">Event Booking Moved</div>
+          <div className={`${brand.dim} text-sm`}>
+            Gigs and interviews are now booked in the Activities tab.
           </div>
-          <button
-            onClick={() => setShowGigs(!showGigs)}
-            className={`rounded-xl px-4 py-2 font-semibold ${showGigs ? "bg-white/10" : `bg-gradient-to-br ${brand.blueGrad}`}`}
-          >
-            {showGigs ? "Hide Offers" : "View Offers"}
-          </button>
-        </Panel>
-
-        <Panel className="text-center">
-          <div className="text-2xl mb-2">🎤</div>
-          <div className="font-semibold mb-2">Book Interviews</div>
-          <div className={`${brand.dim} text-sm mb-3`}>
-            {
-              state.events.scheduled.filter((e) => e.type === "interview")
-                .length
-            }
-            /3 scheduled
-          </div>
-          <button
-            onClick={() => setShowInterviews(!showInterviews)}
-            className={`rounded-xl px-4 py-2 font-semibold ${showInterviews ? "bg-white/10" : `bg-gradient-to-br ${brand.blueGrad}`}`}
-          >
-            {showInterviews ? "Hide Offers" : "View Offers"}
-          </button>
-        </Panel>
-      </div>
-
-      {/* Gigs Panel */}
-      {showGigs && (
-        <Panel className="mb-4">
-          <div className="font-semibold mb-3 flex items-center justify-between">
-            <span>🎸 Available Gigs</span>
-            <span className={`${brand.dim} text-sm`}>
-              {state.events.scheduled.filter((e) => e.type === "gig").length}/5
-              booked
-            </span>
-          </div>
-          {state.events.offers.gigs.length === 0 ? (
-            <div className={`${brand.dim} text-center py-4`}>
-              No gig offers available this week.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {state.events.offers.gigs.map((offer, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 rounded-lg bg-white/5"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">
-                      {getEventIcon(offer.subType)}
-                    </span>
-                    <div>
-                      <div className="font-semibold">
-                        {getEventName(offer.subType)} Gig
-                      </div>
-                      <div className={`${brand.dim} text-sm`}>
-                        Week {offer.week} • Energy: {offer.energyCost} • Pop:{" "}
-                        {offer.popDelta > 0 ? "+" : ""}
-                        {offer.popDelta} • Rep: {offer.repDelta > 0 ? "+" : ""}
-                        {offer.repDelta}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold text-green-400">
-                      {fmtMoney(offer.money)}
-                    </div>
-                    <button
-                      onClick={() => handleBookEvent(offer)}
-                      className="rounded-lg px-3 py-1 bg-green-600/80 text-white text-sm font-medium"
-                    >
-                      Book
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      )}
-
-      {/* Interviews Panel */}
-      {showInterviews && (
-        <Panel className="mb-4">
-          <div className="font-semibold mb-3 flex items-center justify-between">
-            <span>🎤 Available Interviews</span>
-            <span className={`${brand.dim} text-sm`}>
-              {
-                state.events.scheduled.filter((e) => e.type === "interview")
-                  .length
-              }
-              /3 booked
-            </span>
-          </div>
-          {state.events.offers.interviews.length === 0 ? (
-            <div className={`${brand.dim} text-center py-4`}>
-              No interview offers available this week.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {state.events.offers.interviews.map((offer, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 rounded-lg bg-white/5"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">
-                      {getEventIcon(offer.subType)}
-                    </span>
-                    <div>
-                      <div className="font-semibold">
-                        {getEventName(offer.subType)} Interview
-                      </div>
-                      <div className={`${brand.dim} text-sm`}>
-                        Week {offer.week} • Energy: {offer.energyCost} • Pop:{" "}
-                        {offer.popDelta > 0 ? "+" : ""}
-                        {offer.popDelta} • Rep: {offer.repDelta > 0 ? "+" : ""}
-                        {offer.repDelta}
-                        {offer.subType === "tv" && (
-                          <span className="text-yellow-400 ml-2">★ Rare</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold text-green-400">
-                      {fmtMoney(offer.money)}
-                    </div>
-                    <button
-                      onClick={() => handleBookEvent(offer)}
-                      className="rounded-lg px-3 py-1 bg-green-600/80 text-white text-sm font-medium"
-                    >
-                      Book
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      )}
+        </div>
+      </Panel>
 
       <Panel className="p-0 overflow-hidden">
         <div className="flex">
@@ -1501,10 +1469,209 @@ function ChartsInner({ state }) {
 }
 
 // --------- ACTIVITIES
-function Activities() {
+function Activities({ state, dispatch }) {
+  const [showGigs, setShowGigs] = useState(false);
+  const [showInterviews, setShowInterviews] = useState(false);
+
+  // Generate offers if none exist
+  useEffect(() => {
+    if (
+      state.events.offers.gigs.length === 0 &&
+      state.events.offers.interviews.length === 0
+    ) {
+      dispatch({ type: "GENERATE_OFFERS" });
+    }
+  }, [state.time.week, dispatch]);
+
+  const handleBookEvent = (eventData) => {
+    dispatch({ type: "BOOK_EVENT", payload: eventData });
+  };
+
+  const getEventIcon = (subType) => {
+    const icons = {
+      club: "🎭",
+      concert: "🎪",
+      festival: "🎡",
+      arena: "🏟️",
+      radio: "📻",
+      podcast: "🎙️",
+      tv: "📺",
+    };
+    return icons[subType] || "🎤";
+  };
+
+  const getEventName = (subType) => {
+    const names = {
+      club: "Club",
+      concert: "Concert",
+      festival: "Festival",
+      arena: "Arena",
+      radio: "Radio",
+      podcast: "Podcast",
+      tv: "TV",
+    };
+    return names[subType] || subType;
+  };
+
   return (
     <Screen>
       <TopGrad title="Activities" subtitle="Skills • Jobs • Shop • Finance" />
+      
+      {/* Event Booking Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <Panel className="text-center">
+          <div className="text-2xl mb-2">🎸</div>
+          <div className="font-semibold mb-2">Book Gigs</div>
+          <div className={`${brand.dim} text-sm mb-3`}>
+            {state.events.scheduled.filter((e) => e.type === "gig").length}/5
+            scheduled
+          </div>
+          <button
+            onClick={() => setShowGigs(!showGigs)}
+            className={`rounded-xl px-4 py-2 font-semibold ${showGigs ? "bg-white/10" : `bg-gradient-to-br ${brand.blueGrad}`}`}
+          >
+            {showGigs ? "Hide Offers" : "View Offers"}
+          </button>
+        </Panel>
+
+        <Panel className="text-center">
+          <div className="text-2xl mb-2">🎤</div>
+          <div className="font-semibold mb-2">Book Interviews</div>
+          <div className={`${brand.dim} text-sm mb-3`}>
+            {
+              state.events.scheduled.filter((e) => e.type === "interview")
+                .length
+            }
+            /3 scheduled
+          </div>
+          <button
+            onClick={() => setShowInterviews(!showInterviews)}
+            className={`rounded-xl px-4 py-2 font-semibold ${showInterviews ? "bg-white/10" : `bg-gradient-to-br ${brand.blueGrad}`}`}
+          >
+            {showInterviews ? "Hide Offers" : "View Offers"}
+          </button>
+        </Panel>
+      </div>
+
+      {/* Gigs Panel */}
+      {showGigs && (
+        <Panel className="mb-4">
+          <div className="font-semibold mb-3 flex items-center justify-between">
+            <span>🎸 Available Gigs</span>
+            <span className={`${brand.dim} text-sm`}>
+              {state.events.scheduled.filter((e) => e.type === "gig").length}/5
+              booked
+            </span>
+          </div>
+          {state.events.offers.gigs.length === 0 ? (
+            <div className={`${brand.dim} text-center py-4`}>
+              No gig offers available this week.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {state.events.offers.gigs.map((offer, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/5"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">
+                      {getEventIcon(offer.subType)}
+                    </span>
+                    <div>
+                      <div className="font-semibold">
+                        {getEventName(offer.subType)} Gig
+                        {offer.subType === "arena" || offer.subType === "festival" ? (
+                          <span className="text-yellow-400 ml-2 text-xs">★ Rare</span>
+                        ) : null}
+                      </div>
+                      <div className={`${brand.dim} text-sm`}>
+                        Week {offer.week} • Energy: {offer.energyCost} • Pop:{" "}
+                        {offer.popDelta > 0 ? "+" : ""}
+                        {offer.popDelta} • Rep: {offer.repDelta > 0 ? "+" : ""}
+                        {offer.repDelta}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold text-green-400">
+                      {fmtMoney(offer.money)}
+                    </div>
+                    <button
+                      onClick={() => handleBookEvent(offer)}
+                      className="rounded-lg px-3 py-1 bg-green-600/80 text-white text-sm font-medium"
+                    >
+                      Book
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* Interviews Panel */}
+      {showInterviews && (
+        <Panel className="mb-4">
+          <div className="font-semibold mb-3 flex items-center justify-between">
+            <span>🎤 Available Interviews</span>
+            <span className={`${brand.dim} text-sm`}>
+              {
+                state.events.scheduled.filter((e) => e.type === "interview")
+                  .length
+              }
+              /3 booked
+            </span>
+          </div>
+          {state.events.offers.interviews.length === 0 ? (
+            <div className={`${brand.dim} text-center py-4`}>
+              No interview offers available this week.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {state.events.offers.interviews.map((offer, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/5"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">
+                      {getEventIcon(offer.subType)}
+                    </span>
+                    <div>
+                      <div className="font-semibold">
+                        {getEventName(offer.subType)} Interview
+                        {offer.subType === "tv" && (
+                          <span className="text-yellow-400 ml-2">★ Rare</span>
+                        )}
+                      </div>
+                      <div className={`${brand.dim} text-sm`}>
+                        Week {offer.week} • Energy: {offer.energyCost} • Pop:{" "}
+                        {offer.popDelta > 0 ? "+" : ""}
+                        {offer.popDelta} • Rep: {offer.repDelta > 0 ? "+" : ""}
+                        {offer.repDelta}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold text-green-400">
+                      {fmtMoney(offer.money)}
+                    </div>
+                    <button
+                      onClick={() => handleBookEvent(offer)}
+                      className="rounded-lg px-3 py-1 bg-green-600/80 text-white text-sm font-medium"
+                    >
+                      Book
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      )}
+
       <div className="grid gap-4">
         <Panel>
           <div className="font-semibold mb-1">Skills (coming soon)</div>
@@ -1513,7 +1680,7 @@ function Activities() {
           </div>
         </Panel>
         <Panel>
-          <div className="font-semibold mb-1">Jobs & Gigs (coming soon)</div>
+          <div className="font-semibold mb-1">Jobs (coming soon)</div>
           <div className={`${brand.dim}`}>
             Take gigs to earn cash, gain rep, or recover inspiration.
           </div>
@@ -1638,7 +1805,7 @@ export default function App() {
           {tab === "Home" && <Home state={state} dispatch={dispatch} />}
           {tab === "Studio" && <Studio state={state} dispatch={dispatch} />}
           {tab === "Media" && <Media state={state} dispatch={dispatch} />}
-          {tab === "Activities" && <Activities />}
+          {tab === "Activities" && <Activities state={state} dispatch={dispatch} />}
           {tab === "Settings" && <Settings dispatch={dispatch} />}
 
           <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-black/50 backdrop-blur supports-[backdrop-filter]:bg-black/30">
