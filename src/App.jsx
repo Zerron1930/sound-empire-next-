@@ -416,7 +416,29 @@ function Startup({ hasSave, onContinue, onNewGame }) {
 function Home({ state, dispatch }) {
   return (
     <Screen>
-      <TopGrad title="Home" subtitle="Dashboard" />
+      <TopGrad
+        title="Home"
+        subtitle="Dashboard"
+        right={
+          <div className="flex gap-2">
+            <button
+              onClick={() => dispatch({
+                type: "SCHEDULE_EVENT",
+                payload: {
+                  type: "gig",
+                  title: `Test Gig (Week ${state.time.week})`,
+                  week: state.time.week,
+                  effects: { money: 1200, pop: 2, rep: 1, energy: -15 }
+                }
+              })}
+              className="rounded-xl px-3 py-2 text-xs bg-white/10"
+              title="Dev: schedule a sample event for this week"
+            >
+              + Test Gig (dev)
+            </button>
+          </div>
+        }
+      />
 
       {/* small status row: year/week + money */}
       <div className="flex items-center justify-between mb-4">
@@ -455,9 +477,35 @@ function Home({ state, dispatch }) {
 
         <Panel>
           <div className="font-semibold mb-2">Upcoming</div>
-          <div className="max-h-56 md:max-h-64 overflow-y-auto">
-            <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
-          </div>
+          {(() => {
+            const upcoming = state.events
+              .filter(e => e.week >= state.time.week)
+              .sort((a,b) => a.week - b.week);
+            
+            return upcoming.length === 0 ? (
+              <div className={`${brand.dim}`}>No events scheduled yet. Release music to unlock Charts and promotions.</div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto pr-1 space-y-2">
+                {upcoming.map(e => (
+                  <div key={e.id} className="rounded-lg bg-white/5 px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">{e.title}</div>
+                      <div className={`${brand.dim} text-xs`}>Week {e.week} • {e.type}</div>
+                    </div>
+                    <div className={`${brand.dim} text-xs`}>
+                      {[
+                        e.effects?.money ? `$${Math.round(e.effects.money).toLocaleString()}` : null,
+                        e.effects?.pop ? `Pop ${e.effects.pop>0?'+':''}${e.effects.pop}` : null,
+                        e.effects?.rep ? `Rep ${e.effects.rep>0?'+':''}${e.effects.rep}` : null,
+                        e.effects?.energy ? `Energy ${e.effects.energy>0?'+':''}${e.effects.energy}` : null,
+                        e.effects?.insp ? `Insp ${e.effects.insp>0?'+':''}${e.effects.insp}` : null
+                      ].filter(Boolean).join(' • ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </Panel>
       </div>
 
