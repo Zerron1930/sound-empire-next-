@@ -1,6 +1,7 @@
 import React, { useEffect, useReducer, useState } from "react";
 import { Page, HeaderBar, Section, Card, TimeDisplay, SaveButton, SettingsButton, BottomAction, brand, swiftlyStyles } from "./ui/Layout.jsx";
 import BottomNav from "./ui/BottomNav.jsx";
+import AurafyApp from "./aurafy/ui/AurafyApp.jsx";
 
 /* ==========================================================
    Sound Empire — Next
@@ -722,7 +723,14 @@ const initialState = {
     swiftly: { followers: 0 }
   },
   // simple engagement anti-spam (per week limits)
-  limits: { likesThisWeek: {}, commentsThisWeek: {} } // {postId: count}
+  limits: { likesThisWeek: {}, commentsThisWeek: {} }, // {postId: count}
+  
+  // Aurafy streaming platform data
+  aurafy: {
+    artists: {},
+    tracks: {},
+    releases: {}
+  }
 };
 
 function reducer(state, action) {
@@ -787,6 +795,18 @@ function reducer(state, action) {
           salesLifetime: project.salesLifetime || 0
         }));
       }
+      
+      // Initialize Aurafy data if missing
+      if (!payload.aurafy) {
+        payload.aurafy = {
+          artists: {},
+          tracks: {},
+          releases: {}
+        };
+      }
+      
+      // Note: Aurafy sync is now handled in the component initialization
+      // This ensures proper ES6 module loading in the browser
 
       // Migration: initialize inProjects by scanning released projects
       if (payload.releases && payload.projectsReleased) {
@@ -1004,8 +1024,8 @@ function reducer(state, action) {
               return { ...account, verified: true };
             }
             return account;
-          });
-        }
+        });
+      }
 
       // Generate offers if none exist
       if (
@@ -2201,6 +2221,9 @@ function reducer(state, action) {
       console.error('Error generating Swiftly feed posts:', error);
       // Continue with empty feed posts if generation fails
     }
+    
+    // Note: Aurafy sync is now handled in the component initialization
+    // This ensures proper ES6 module loading in the browser
 
       // Compute final stat deltas
       const moneyDelta = nextMoney - preMoney;
@@ -2290,6 +2313,10 @@ function reducer(state, action) {
             return account;
           })
         },
+        
+        // Note: Aurafy weekly updates are now handled in the component
+        // This ensures proper ES6 module loading in the browser
+        aurafy: state.aurafy || { artists: {}, tracks: {}, releases: {} },
         
         limits: { likesThisWeek: {}, commentsThisWeek: {} },
         alerts: [...alerts, ...state.alerts],
@@ -2931,7 +2958,7 @@ function useSavedReducer() {
   // persist
   useEffect(() => {
     if (assetsLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
   }, [state, assetsLoaded]);
 
@@ -4041,6 +4068,43 @@ function Media({ state, dispatch, setTab }) {
                   >
                     Open Swiftly
                   </button>
+                </Card>
+                
+                {/* Aurafy App */}
+                <Card className="bg-gradient-to-br from-[#1a1a2e] to-[#16213e] border border-purple-500/20">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold">
+                      A
+                    </div>
+                    <div>
+                      <div className="font-semibold text-white">Aurafy</div>
+                      <div className="text-sm text-purple-300">
+                        Streaming platform • {state.aurafy?.artists?.player?.monthlyListeners || 0} monthly listeners
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setTab("Aurafy")}
+                      className="flex-1 rounded-xl px-4 py-2 font-semibold bg-gradient-to-br from-[#8B5CF6] to-[#7C3AED] text-white hover:from-[#7C3AED] hover:to-[#6D28D9] transition-all"
+                    >
+                      Open Aurafy
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Force reload to trigger Aurafy initialization
+                          window.location.reload();
+                        } catch (error) {
+                          console.warn('Aurafy reload failed:', error);
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors"
+                      title="Reload Aurafy data from discography"
+                    >
+                      🔄
+                    </button>
+                  </div>
                 </Card>
                 
                 <div className="text-neutral-400 text-sm">
@@ -5287,6 +5351,63 @@ function Settings({ state, dispatch }) {
               </div>
             </div>
           </Card>
+          
+          {/* Aurafy Debug Panel */}
+          <Card>
+            <div className="font-semibold mb-2">Aurafy Debug</div>
+            <div className="space-y-3">
+              <div className="text-sm text-neutral-400">
+                Streaming platform data and controls
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 p-2 rounded">
+                  <div className="font-semibold text-blue-400">Artists</div>
+                  <div>{Object.keys(state.aurafy?.artists || {}).length}</div>
+                </div>
+                <div className="bg-white/5 p-2 rounded">
+                  <div className="font-semibold text-purple-400">Tracks</div>
+                  <div>{Object.keys(state.aurafy?.tracks || {}).length}</div>
+                </div>
+                <div className="bg-white/5 p-2 rounded">
+                  <div className="font-semibold text-green-400">Releases</div>
+                  <div>{Object.keys(state.aurafy?.releases || {}).length}</div>
+                </div>
+                <div className="bg-white/5 p-2 rounded">
+                  <div className="font-semibold text-yellow-400">Monthly Listeners</div>
+                  <div>{state.aurafy?.artists?.player?.monthlyListeners || 0}</div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      // Force reload to trigger Aurafy initialization
+                      window.location.reload();
+                    } catch (error) {
+                      console.warn('Aurafy reload failed:', error);
+                      alert('Aurafy reload failed. Please try again.');
+                    }
+                  }}
+                  className="flex-1 rounded-lg px-3 py-2 bg-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/30 transition-colors"
+                >
+                  🔄 Sync Data
+                </button>
+                
+                <button
+                  onClick={() => {
+                    const aurafyData = state.aurafy || {};
+                    console.log('Aurafy State:', aurafyData);
+                    alert('Aurafy data logged to console');
+                  }}
+                  className="flex-1 rounded-lg px-3 py-2 bg-purple-500/20 text-purple-300 text-sm hover:bg-purple-500/30 transition-colors"
+                >
+                  📊 Log Data
+                </button>
+              </div>
+            </div>
+          </Card>
         </div>
       </Section>
     </Page>
@@ -5334,6 +5455,7 @@ function App() {
         {tab === "Settings" && <Settings state={state} dispatch={dispatch} />}
         {tab === "Alerts" && <Alerts state={state} dispatch={dispatch} />}
         {tab === "Swiftly" && <Swiftly state={state} dispatch={dispatch} setTab={setTab} />}
+        {tab === "Aurafy" && <AurafyApp gameState={state} aurafyState={state.aurafy} onBack={() => setTab("Media")} />}
       </main>
 
       <BottomNav 
